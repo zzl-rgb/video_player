@@ -189,7 +189,7 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
     this.videoPlayers.set(playerId, videoPlayer);
 
     Log.i(TAG, `The player was created successfully,ID: ${playerId}`);
-    return textureId;
+    return playerId;
   }
 
   dispose(playerId:number): void {
