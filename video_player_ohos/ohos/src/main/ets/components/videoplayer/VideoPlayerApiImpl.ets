@@ -2,8 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE_ODID file.
 
-import { FlutterPlugin, FlutterPluginBinding} from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/FlutterPlugin';
-import { AbilityPluginBinding } from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/ability/AbilityPluginBinding';
+import {
+  FlutterPlugin,
+  FlutterPluginBinding
+} from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/FlutterPlugin';
+import {
+  AbilityPluginBinding
+} from '@ohos/flutter_ohos/src/main/ets/embedding/engine/plugins/ability/AbilityPluginBinding';
 import { BinaryMessenger } from '@ohos/flutter_ohos/src/main/ets/plugin/common/BinaryMessenger';
 import BasicMessageChannel, { Reply } from '@ohos/flutter_ohos/src/main/ets/plugin/common/BasicMessageChannel';
 import Log from '@ohos/flutter_ohos/src/main/ets/util/Log';
@@ -12,7 +17,7 @@ import { SurfaceTextureEntry } from '@ohos/flutter_ohos/src/main/ets/view/Textur
 import { VideoPlayer } from './VideoPlayer';
 import { VideoPlayerApi } from './VideoPlayerApi';
 import { CommonConstants } from './constants/CommonConstants';
-import { CreateMessage,wrapError,OhosVideoPlayerApi,PlatformVideoViewType } from './Messages';
+import { CreateMessage, wrapError, OhosVideoPlayerApi, PlatformVideoViewType } from './Messages';
 import { PlayerModel } from './PlayerModel';
 import HashMap from '@ohos.util.HashMap';
 import { VideoPlayerApiCodec } from './VideoPlayerApiCodec';
@@ -54,13 +59,14 @@ function mapPlaybackSpeed(speed: number): media.PlaybackSpeed | null {
   }
 }
 
-export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
+export class VideoPlayerApiImpl extends OhosVideoPlayerApi {
   private videoPlayers: HashMap<number, VideoPlayer> = new HashMap<number, VideoPlayer>();
   private nextPlayerId: number = 1;
   private flutterState: FlutterState | null = null;
   private binding: AbilityPluginBinding | null = null;
   private audioFocus: Boolean = false;
   private pixelMaps: HashMap<string, image.PixelMap> = new HashMap();
+  private playerIdToTextureIdMap: HashMap<number, number> = new HashMap<number, number>();
 
   constructor(flutterState: FlutterState | null, binding: AbilityPluginBinding | null) {
     super();
@@ -173,7 +179,8 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       avMetaExtractor.release();
     }
     let eventChannel: EventChannel = new EventChannel(this.flutterState.getBinaryMessenger(),
-      "flutter.io/videoPlayer/videoEvents" + textureId.toString());
+      "flutter.io/videoPlayer/videoEvents" + playerId.toString());
+    Log.i(TAG, `EventChannel created with name: flutter.io/videoPlayer/videoEvents${textureId}`);
     let videoPlayer: VideoPlayer;
     if (asset != null) {
       let rawFileDescriptor: resourceManager.RawFileDescriptor =
@@ -186,20 +193,24 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       throw new Error("Invalid video source");
     }
     await videoPlayer.createAVPlayer();
+    Log.i(TAG, `StreamHandler setup completed for textureId: ${textureId}`);
     this.videoPlayers.set(playerId, videoPlayer);
+    this.playerIdToTextureIdMap.set(playerId, textureId);
 
     Log.i(TAG, `The player was created successfully,ID: ${playerId}`);
     return playerId;
   }
 
-  dispose(playerId:number): void {
+  dispose(playerId: number): void {
     const videoPlayer = this.videoPlayers.get(playerId);
     if (videoPlayer) {
       videoPlayer.release();
       if (this.flutterState) {
-        this.flutterState.getTextureRegistry().unregisterTexture(playerId);
+        const textureId = this.playerIdToTextureIdMap.get(playerId);
+        this.flutterState.getTextureRegistry().unregisterTexture(textureId);
       }
       this.videoPlayers.remove(playerId);
+      this.playerIdToTextureIdMap.remove(playerId);
       Log.i(TAG, `Release player resources: ${playerId}`);
     } else {
       Log.w(TAG, `Try to release an non-existent player: ${playerId}`);
@@ -220,7 +231,7 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
   setVolume(playerId: number, volume: number) {
     const videoPlayer = this.videoPlayers.get(playerId);
     Log.d(TAG, "setVolume, id=" + playerId + ", videoPlayer=" + videoPlayer);
-   if (videoPlayer) {
+    if (videoPlayer) {
       videoPlayer.setVolume(volume);
       Log.d(TAG, `Set up the player: ${playerId} volume: ${volume}`);
     } else {
@@ -242,8 +253,8 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       Log.d(TAG, `Set up the player: ${playerId} speed: ${speed}`);
     } else {
       Log.w(TAG, `The player does not exist: ${playerId}`);
+    }
   }
-}
 
   play(playerId: number) {
     const videoPlayer = this.videoPlayers.get(playerId);
@@ -279,7 +290,7 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
     }
   }
 
-  pause(playerId:number) {
+  pause(playerId: number) {
     const videoPlayer = this.videoPlayers.get(playerId);
     Log.d(TAG, "pause, id=" + playerId + ", videoPlayer=" + videoPlayer);
     if (videoPlayer) {
@@ -293,14 +304,14 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
   setMixWithOthers(mixWithOthers: boolean) {
     Log.d(TAG, "set MixWithOthers:" + mixWithOthers);
     this.audioFocus = mixWithOthers;
-     this.videoPlayers.forEach((videoPlayer:VideoPlayer) => {
+    this.videoPlayers.forEach((videoPlayer: VideoPlayer) => {
       videoPlayer.setAudioFocus(mixWithOthers);
     });
   }
 
   setup(binaryMessenger: BinaryMessenger): void {
     Log.i(TAG, "设置消息通道处理程序");
-    
+
     // 为每个方法设置消息通道
     this.setupInitializeChannel(binaryMessenger);
     this.setupCreateChannel(binaryMessenger);
@@ -318,11 +329,11 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
   // 初始化通道设置
   private setupInitializeChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.initialize", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.initialize",
       OhosVideoPlayerApi.getCodec() // 使用抽象类的编解码器
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         try {
@@ -339,21 +350,21 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
   // 创建通道设置
   private setupCreateChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.create", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.create",
       OhosVideoPlayerApi.getCodec()
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         let args = msg as Array<Object>;
         let createMsg = args[0] as CreateMessage;
-        
+
         try {
           this.create(createMsg).then((playerId: number) => {
             // 返回包含playerId的数组
             reply.reply([playerId]);
-          }).catch((err:Error) => {
+          }).catch((err: Error) => {
             reply.reply(wrapError(err));
           });
         } catch (err) {
@@ -366,16 +377,16 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
   // 释放通道设置
   private setupDisposeChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.dispose", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.dispose",
       OhosVideoPlayerApi.getCodec()
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         let args = msg as Array<Object>;
         let playerId = args[0] as number;
-        
+
         try {
           this.dispose(playerId);
           // 返回空数组表示成功
@@ -390,17 +401,17 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
   // 设置循环播放通道
   private setupSetLoopingChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.setLooping", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.setLooping",
       OhosVideoPlayerApi.getCodec()
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         let args = msg as Array<Object>;
         let playerId = args[0] as number;
         let looping = args[1] as boolean;
-        
+
         try {
           this.setLooping(playerId, looping);
           // 返回空数组表示成功
@@ -411,21 +422,21 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       }
     });
   }
-  
+
   // 设置音量通道
   private setupSetVolumeChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.setVolume", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.setVolume",
       OhosVideoPlayerApi.getCodec()
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         let args = msg as Array<Object>;
         let playerId = args[0] as number;
         let volume = args[1] as number;
-        
+
         try {
           this.setVolume(playerId, volume);
           // 返回空数组表示成功
@@ -436,21 +447,21 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       }
     });
   }
-  
+
   // 设置播放速度通道
   private setupSetPlaybackSpeedChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.setPlaybackSpeed", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.setPlaybackSpeed",
       OhosVideoPlayerApi.getCodec()
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         let args = msg as Array<Object>;
         let playerId = args[0] as number;
         let speed = args[1] as number;
-        
+
         try {
           this.setPlaybackSpeed(playerId, speed);
           // 返回空数组表示成功
@@ -461,20 +472,20 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       }
     });
   }
-  
+
   // 播放通道
   private setupPlayChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.play", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.play",
       OhosVideoPlayerApi.getCodec()
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         let args = msg as Array<Object>;
         let playerId = args[0] as number;
-        
+
         try {
           this.play(playerId);
           // 返回空数组表示成功
@@ -485,20 +496,20 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       }
     });
   }
-  
+
   // 获取位置通道
   private setupPositionChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.position", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.position",
       OhosVideoPlayerApi.getCodec()
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         let args = msg as Array<Object>;
         let playerId = args[0] as number;
-        
+
         try {
           let position = this.position(playerId);
           // 返回包含位置的数组
@@ -509,21 +520,21 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       }
     });
   }
-  
+
   // 跳转通道
   private setupSeekToChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.seekTo", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.seekTo",
       OhosVideoPlayerApi.getCodec()
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         let args = msg as Array<Object>;
         let playerId = args[0] as number;
         let position = args[1] as number;
-        
+
         try {
           this.seekTo(playerId, position);
           // 返回空数组表示成功
@@ -534,20 +545,20 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       }
     });
   }
-  
+
   // 暂停通道
   private setupPauseChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.pause", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.pause",
       OhosVideoPlayerApi.getCodec()
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         let args = msg as Array<Object>;
         let playerId = args[0] as number;
-        
+
         try {
           this.pause(playerId);
           // 返回空数组表示成功
@@ -558,20 +569,20 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       }
     });
   }
-  
+
   // 设置音频混合通道
   private setupSetMixWithOthersChannel(binaryMessenger: BinaryMessenger): void {
     const channel: BasicMessageChannel<Object> = new BasicMessageChannel<Object>(
-      binaryMessenger, 
-      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.setMixWithOthers", 
+      binaryMessenger,
+      "dev.flutter.pigeon.video_player_ohos.OhosVideoPlayerApi.setMixWithOthers",
       OhosVideoPlayerApi.getCodec()
     );
-    
+
     channel.setMessageHandler({
       onMessage: (msg: Object, reply: Reply<Object>): void => {
         let args = msg as Array<Object>;
         let mixWithOthers = args[0] as boolean;
-        
+
         try {
           this.setMixWithOthers(mixWithOthers);
           // 返回空数组表示成功
@@ -582,5 +593,4 @@ export class VideoPlayerApiImpl extends OhosVideoPlayerApi{
       }
     });
   }
-
 }
